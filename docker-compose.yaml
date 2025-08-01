@@ -1,0 +1,23 @@
+version: "3.8"
+
+services:
+  pe_scraping:
+    build:
+      context: .
+    image: pe_scraping
+    depends_on:
+      - db
+
+  db:
+    image: postgres:latest
+    environment:
+      POSTGRES_DB:       firms
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: GuilphMonlrc@22Wdgcwg22
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
