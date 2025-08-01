@@ -1,31 +1,31 @@
-FROM python:3.10
+# Stage 1: ollama-base – pulls mixtral once
+FROM python:3.10 AS ollama-base
 
-# 1) Install curl (needed for Ollama installer)
+# install curl + Ollama CLI
 RUN apt-get update && \
     apt-get install -y curl && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    curl -fsSL https://ollama.com/install.sh | sh
 
-# 2) Install Ollama CLI
-RUN curl -fsSL https://ollama.com/install.sh | sh
-
-# 3) Ensure Ollama listens on all interfaces (default port 11434)
+# ensure Ollama listens on all interfaces
 ENV OLLAMA_HOST=0.0.0.0:11434
 
-# 4) Start the daemon, wait a bit, pull the model, then shut it down—all in one layer
+# start → pull → stop in one layer
 RUN ollama serve & \
     sleep 5 && \
     ollama pull mixtral && \
     pkill ollama
 
-# 5) Set up your Python app
+# Stage 2: app – builds your scraping service on top of ollama-base
+FROM ollama-base AS app
+
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
+
 COPY ./src ./src
 COPY pefirms.csv .
 
-# 6) Expose Ollama + your app port
 EXPOSE 11434 8000
 
-# 7) On container start, launch both Ollama and your Python service
 CMD ["sh", "-c", "ollama serve & python3 -u ./src/main.py"]
