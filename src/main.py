@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 CSV_PATH = 'pefirms.csv'
 
 load_dotenv()
-host = os.environ["PG_HOST_local"]
+host = os.environ["PG_HOST_docker"]
 port = os.environ["PG_PORT"]
 database = os.environ["PG_DATABASE"]
 user = os.environ["PG_USER"]
