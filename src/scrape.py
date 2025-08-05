@@ -9,6 +9,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from sentence_transformers import SentenceTransformer
 import numpy as np
+from llama import *
 
 # Keywords to skip crawling
 EXCLUDE_KEYWORDS = {
@@ -20,7 +21,7 @@ EXCLUDE_KEYWORDS = {
     "login", "signup", "register", "subscribe",
     "cookie", "rss", "sitemap",
     "leadership", ".pdf", ".jpg", ".jpeg",
-    "branch", ".xlsx", "email", "article", "report"
+    "branch", ".xlsx", "email", "article", "report", ".mp4", ".mp3"
 }
 
 # Ensure output directory exists
@@ -164,3 +165,55 @@ def delete_txt(folder_path, filename):
             print(f"File not found: {file_path}")
     except Exception as e:
         print(f"Error deleting {file_path}: {e}")
+
+    
+def main():
+    firm_name = "blackrock"
+    
+    txt_file = crawl_site("https://joingardencity.com", max_pages=30)
+
+    with open(txt_file, 'r', encoding='utf-8') as f:
+        paras = [p.strip() for p in f.read().split('\n\n') if p.strip()]
+    seen, clean_paras = set(), []
+    for p in paras:
+        if p not in seen:
+            seen.add(p)
+            clean_paras.append(p)
+
+    query = (
+        "Our private equity firm focuses on specific industries, employs an investment model such as buy-and-build or growth equity, and follows clear investment thesis statements for value creation."
+        )
+
+    top_k = embed_and_rank_paragraphs(clean_paras, query, top_k=60)
+
+    try: os.remove(txt_file)
+    except OSError: pass
+
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    snippet_path = os.path.join(OUTPUT_DIR, f"{firm_name}_relevant.txt")
+    with open(snippet_path, 'w', encoding='utf-8') as rf:
+        for txt, _ in top_k:
+            rf.write(txt + "\n\n")
+
+    text = read_txt(OUTPUT_DIR, f"{firm_name}_relevant.txt")
+    for i in range(3):
+        print(f"Attempt {i + 1}: Generating thesis...")
+        thesis = call_model(format_prompt(text))
+        response = call_model(format_grade_prompt(thesis))
+        grade = extract_first_int(response)
+        print(thesis)
+        print(grade)
+
+        if 1 == 1:
+            print("Valid thesis identified. Exiting loop."  )
+            break
+        else:
+            print("Thesis did not contain sufficient investment thesis information. Retrying...\n")
+    else:
+        print("Failed to generate a valid thesis after 3 attempts.")
+
+    # delete_txt(OUTPUT_DIR, f"{firm_name}_relevant.txt")
+
+    
+if __name__ == '__main__':
+    main()
