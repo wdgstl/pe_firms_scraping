@@ -99,7 +99,7 @@ def model_worker(model_queue):
             output = draft
             print(f"[{firm_name}] Valid output found.")
 
-            # delete_txt(OUTPUT_DIR, f"{firm_name}_relevant.txt")
+            delete_txt(OUTPUT_DIR, f"{firm_name}_relevant.txt")
 
             industries = extract_industries(output)
 
