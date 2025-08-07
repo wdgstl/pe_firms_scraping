@@ -9,6 +9,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from sentence_transformers import SentenceTransformer
 import numpy as np
+import re
 
 # Keywords to skip crawling (unchanged)
 EXCLUDE_KEYWORDS = {
@@ -118,12 +119,13 @@ def chunk_text(lines):
         chunks.append("\n".join(current).strip())
     return chunks
 
-
 def embed_and_rank_paragraphs(paragraphs, query, top_k=10,
-                              min_words=5, min_chars=60, boost_weight=0.2):
+                              min_words=5, min_chars=60,
+                              boost_weight=0.2, thesis_boost=0.3, list_boost=0.5):
     """
     Embed+rank text blocks by similarity, boosting those containing
-    an expanded set of PE-industry keywords. Returns list of (chunk, score).
+    an expanded set of PE-industry keywords, thesis‐cue language,
+    and comma‐list patterns. Returns list of (chunk, score).
     """
     KEYWORDS = {
         "focus", "invest", "investment", "strategy", "portfolio", "sector", "thesis",
@@ -145,7 +147,11 @@ def embed_and_rank_paragraphs(paragraphs, query, top_k=10,
         "mining", "metals", "chemicals",
         "advertising", "adtech", "martech",
         "HR tech", "human resources",
-        "data centers", "cloud infrastructure", "hvac", "construction"
+        "data centers", "cloud infrastructure", "hvac", "construction",
+        # Added list cues
+        "industries", "sectors", "verticals", "areas",
+        # Added thesis cues
+        "rationale", "criteria", "approach", "because", "reason"
     }
 
     def is_noise(p):
@@ -157,23 +163,36 @@ def embed_and_rank_paragraphs(paragraphs, query, top_k=10,
         return False
 
     clean = [p for p in paragraphs if not is_noise(p)] or paragraphs
-    qv = model.encode(query, convert_to_numpy=True)
-    embs = model.encode(clean, convert_to_numpy=True, batch_size=64)
+
+    # 1) Embeddings & cosine similarity
+    qv   = model.encode(query, convert_to_numpy=True)
+    embs = model.encode(clean, batch_size=64, convert_to_numpy=True)
     sims = np.dot(embs, qv) / (np.linalg.norm(embs, axis=1) * np.linalg.norm(qv))
-    flags = np.array([1 if any(kw in p.lower() for kw in KEYWORDS) else 0 for p in clean])
-    scores = sims + boost_weight * flags
+
+    # 2) Keyword boost
+    kw_flags = np.array([1 if any(kw in p.lower() for kw in KEYWORDS) else 0 for p in clean])
+
+    # 3) Thesis‐cue boost
+    thesis_flags = np.array([
+        1 if re.search(r'\b(thesis|rationale|criteria|approach|because)\b', p, re.I) else 0
+        for p in clean
+    ])
+
+    # 4) Comma‐list boost
+    list_flags = np.array([1 if p.count(',') >= 2 else 0 for p in clean])
+
+    # 5) Combine scores
+    scores = (
+        sims
+        + boost_weight * kw_flags
+        + thesis_boost  * thesis_flags
+        + list_boost    * list_flags
+    )
+
+    # 6) Sort and select top_k
     idxs = np.argsort(scores)[::-1][:top_k]
     return [(clean[i], float(scores[i])) for i in idxs]
 
-
-def chunk_and_score(lines, query, top_k=10, **kwargs):
-    """
-    Split lines into chunks and score each chunk. Prints and returns
-    a list of (chunk, score) tuples.
-    """
-    chunks = chunk_text(lines)
-    scored = embed_and_rank_paragraphs(chunks, query, top_k=top_k, **kwargs)
-    return scored
 
 
 def read_txt(folder_path, filename):

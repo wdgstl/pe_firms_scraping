@@ -51,7 +51,7 @@ def process_firm(firm, model_queue):
                 seen.add(chunk)
                 clean_chunks.append(chunk)
 
-        query = ("What industry areas does the firm invest in?")
+        query = ("Enumerate each industry sector this firm targets and state the investment thesis or rationale for each.")
 
         # 4) Score the deduped chunks
         scored_chunks = embed_and_rank_paragraphs(clean_chunks, query, top_k=60)
