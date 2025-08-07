@@ -4,29 +4,29 @@ import re
 def format_prompt(text):
     print("Starting clean industry extraction…")
     prompt = f"""
-Extract only the **explicitly stated** industry focus areas from the text below.
+        Extract only the **explicitly stated** industry areas that the private equity firm invests in from the text below.
 
-### INSTRUCTIONS:
-- Return only the names of industries that are clearly and directly mentioned.
-- Do NOT guess or infer. If it's not plainly stated, skip it.
-- Do NOT include commentary, explanations, or implied references.
-- Do NOT write anything other than clean industry names in brackets.
+        ### INSTRUCTIONS:
+        - Return only the names of industries that are clearly and directly mentioned.
+        - Do NOT guess or infer. If it's not plainly stated, skip it.
+        - Do NOT include commentary, explanations, or implied references.
+        - Do NOT write anything other than clean industry names in brackets.
 
-### OUTPUT FORMAT:
-- Each line: [Industry Name]
-- If there are no valid industries, return an empty string.
-- Do NOT include lines like:
-  [No industry stated]
-  [Healthcare (implied)]
-  [Not explicitly mentioned]
+        ### OUTPUT FORMAT:
+        - Each line: [Industry Name]
+        - If there are no valid industries, return an empty string.
+        - Do NOT include lines like:
+        [No industry stated]
+        [Healthcare (implied)]
+        [Not explicitly mentioned]
 
-### EXAMPLE OUTPUT:
-[Healthcare Services]  
-[Value-Added Distribution]  
-[Industrial Services]
+        ### EXAMPLE OUTPUT:
+        [Healthcare Services]  
+        [Value-Added Distribution]  
+        [Industrial Services]
 
-### TEXT:
-{text}
+        ### TEXT:
+        {text}
 """
     return prompt
 
