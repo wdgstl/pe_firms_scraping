@@ -51,10 +51,10 @@ def process_firm(firm, model_queue):
                 seen.add(chunk)
                 clean_chunks.append(chunk)
 
-        query = ("Enumerate each industry sector this firm targets and state the investment thesis or rationale for each.")
+        query = "Industries: Healthcare, Software, Fintech, Retail, Agriculture, Biotech"
 
         # 4) Score the deduped chunks
-        scored_chunks = embed_and_rank_paragraphs(clean_chunks, query, top_k=60)
+        scored_chunks = embed_and_rank_paragraphs(clean_chunks, query, top_k=10)
 
         # 4) Write out
         os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -63,7 +63,7 @@ def process_firm(firm, model_queue):
             for chunk, score in scored_chunks:
                 rf.write(f"[{score}]{chunk}\n\n")
 
-        model_queue.put((firm, snippet_path))
+        model_queue.put((firm, snippet_path, txt_file))
         print(f"[{firm_name}] Relevant snippets written to {snippet_path}")
 
     except Exception as e:
@@ -79,7 +79,7 @@ def model_worker(model_queue):
             print("[Model Worker] Shutdown signal received. Exiting.")
             break
 
-        firm, path = item
+        firm, path, txt = item
         firm_name = firm['name']
         try:
             text = read_txt(OUTPUT_DIR, f"{firm_name}_relevant.txt")
@@ -100,10 +100,47 @@ def model_worker(model_queue):
 
             industries = extract_industries(output)
 
-            db = SQLConnection(host, port, database, user, password)
+            industries_thesis_map = {}
+
             for ind in industries:
+                with open(txt, 'r', encoding='utf-8') as f:
+                    file_lines = f.read().splitlines()
+
+                chunks = chunk_text(file_lines)
+
+                seen = set()
+                clean_chunks = []
+                for chunk in chunks:
+                    if chunk not in seen:
+                        seen.add(chunk)
+                        clean_chunks.append(chunk)
+
+                thesis_query = f"What is the investment thesis for {ind}?"
+
+                # 4) Score the deduped chunks
+                scored_chunks = embed_and_rank_paragraphs_thesis(clean_chunks, thesis_query, ind, top_k=10)
+
+                # 4) Write out
+                os.makedirs(OUTPUT_DIR, exist_ok=True)
+                snippet_path = os.path.join(OUTPUT_DIR, f"{firm_name}_{ind}_relevant.txt")
+                with open(snippet_path, 'w', encoding='utf-8') as rf:
+                    for chunk, score in scored_chunks:
+                        rf.write(f"[{score}]{chunk}\n\n")
+                print(f"[{firm_name}] Relevant snippets written to {snippet_path}")
+
+                text = read_txt(OUTPUT_DIR, f"{firm_name}_{ind}_relevant.txt")
+                thesis_raw = call_model(format_thesis_prompt(ind, text))
+
+                thesis = extract_thesis(thesis_raw)
+
+                industries_thesis_map[ind] = thesis
+
+
+            db = SQLConnection(host, port, database, user, password)
+            for ind in industries_thesis_map.keys():
+                thesis = industries_thesis_map[ind]
                 db.save_firm_to_db(
-                    firm_name, firm['website'], ind,
+                    firm_name, firm['website'], ind, thesis,
                     firm.get('country', ''), str(firm.get('founded', '')),
                     firm.get('industry', ''), firm.get('linkedin_url', ''),
                     firm.get('locality', ''), firm.get('region', ''), firm.get('size', '')
@@ -115,8 +152,8 @@ def model_worker(model_queue):
             print(f"[{firm_name}] Error in model processing: {e}")
 
 
-def main():
-    # Initialize database
+def main(parallel: bool = False):    
+
     db = SQLConnection(host, port, database, user, password)
     db.drop_table()
     db.create_table()
@@ -133,9 +170,13 @@ def main():
         model_proc.start()
 
         # Scrape firms in parallel
-        with ProcessPoolExecutor(max_workers=os.cpu_count() or 1) as executor:
+        if parallel:                          # old behaviour
+           with ProcessPoolExecutor(max_workers=os.cpu_count() or 1) as executor:
             for firm in firms:
                 executor.submit(process_firm, firm, model_queue)
+        else:                                 # single-process scrape
+            for firm in firms:
+                process_firm(firm, model_queue)
 
         # Signal the worker to shut down
         model_queue.put(None)

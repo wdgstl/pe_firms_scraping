@@ -11,6 +11,7 @@ def format_prompt(text):
         - Do NOT guess or infer. If it's not plainly stated, skip it.
         - Do NOT include commentary, explanations, or implied references.
         - Do NOT write anything other than clean industry names in brackets.
+        - Do NOT include any information on employees or founders of the company.
 
         ### OUTPUT FORMAT:
         - Each line: [Industry Name]
@@ -55,6 +56,34 @@ def format_grade_prompt(answer):
         Only output -1 or 1.
         """
 
+def format_thesis_prompt(industry_area: str, text: str) -> str:
+    print("Kicking off thesis job…")
+    return f"""
+        You are a private-equity research assistant.
+
+        TASK  
+        Extract an **explicit investment thesis** for the industry below.  
+        • It is LIKELY that there will not be a thesis. If there is not, that is ok and return nothing, do not make anything up or generalize another thesis into this industry.
+        • Use **only** wording that appears verbatim in the text.  
+        • **Do NOT** add any labels, commentary, or paraphrasing.  
+        • If no thesis is present, return an empty string (`""`).
+
+
+        OUTPUT  
+        Return exactly one line in this form (no extra spaces):  
+        `[<thesis sentence or phrase>]`
+
+        Examples  
+        ✔ **Correct:** [We seek to back founder-owned industrial technology businesses.]  
+        ✘ **Wrong:** [Investment Thesis: We seek to back founder-owned industrial technology businesses.]
+
+        INDUSTRY AREA  
+        {industry_area}
+
+        TEXT  
+        {text}
+        """
+
 
 def call_model(text):
     response = requests.post(
@@ -94,3 +123,20 @@ def extract_industries(model_output: str) -> list[str]:
         industries.append(match.strip())
 
     return industries
+
+import re
+
+def extract_thesis(raw: str) -> str:
+  
+    if not raw or not raw.strip():
+        return ""
+
+    txt = raw.strip()
+
+    if txt.startswith("[") and txt.endswith("]"):
+        txt = txt[1:-1].strip()
+
+    txt = re.sub(r"^Investment\s+Thesis:\s*", "", txt, flags=re.I).strip()
+
+    return txt
+

@@ -18,6 +18,7 @@ class SQLConnection:
             name TEXT NOT NULL,
             website TEXT,
             industry_area TEXT,
+            thesis TEXT,
             country TEXT,
             founded TEXT,
             industry TEXT,
@@ -29,15 +30,15 @@ class SQLConnection:
         """)
         self.conn.commit()
 
-    def save_firm_to_db(self, name: str, website: str, industry_area: str,
+    def save_firm_to_db(self, name: str, website: str, industry_area: str, thesis: str,
                         country: str, founded: str, industry: str,
                         linkedin_url: str, locality: str, region: str, size: str):
         try:
             self.cursor.execute("""
-                INSERT INTO firms (name, website, industry_area, country, founded, industry, linkedin_url, locality, region, size)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO firms (name, website, industry_area, thesis, country, founded, industry, linkedin_url, locality, region, size)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (id) DO NOTHING;
-            """, (name, website, industry_area, country, founded, industry, linkedin_url, locality, region, size))
+            """, (name, website, industry_area, thesis, country, founded, industry, linkedin_url, locality, region, size))
             self.conn.commit()
             print(f"Saved: {name}")
         except Exception as e:

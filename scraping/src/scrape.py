@@ -119,80 +119,105 @@ def chunk_text(lines):
         chunks.append("\n".join(current).strip())
     return chunks
 
-def embed_and_rank_paragraphs(paragraphs, query, top_k=10,
-                              min_words=5, min_chars=60,
-                              boost_weight=0.2, thesis_boost=0.3, list_boost=0.5):
-    """
-    Embed+rank text blocks by similarity, boosting those containing
-    an expanded set of PE-industry keywords, thesis‐cue language,
-    and comma‐list patterns. Returns list of (chunk, score).
-    """
-    KEYWORDS = {
-        "focus", "invest", "investment", "strategy", "portfolio", "sector", "thesis",
-        "acquire", "acquires", "grows", "grow", "business", "company",
-        "holding", "model", "mission", "goal",
-        "healthcare", "medtech", "medical devices", "pharmaceuticals", "biotech",
-        "technology", "software", "cloud computing", "SaaS", "AI", "machine learning",
-        "cybersecurity", "blockchain", "fintech", "insurtech",
-        "energy", "renewable energy", "oil & gas", "utilities",
-        "industrial", "manufacturing", "automotive", "automotive components",
-        "transportation", "logistics", "supply chain",
-        "consumer", "consumer goods", "FMCG", "ecommerce", "retail",
-        "food & beverage", "hospitality", "travel", "tourism",
-        "education", "edtech",
-        "media", "digital media", "streaming", "gaming",
-        "telecommunications", "5G", "IoT", "internet of things",
-        "real estate", "infrastructure", "construction",
-        "financial services", "banking", "insurance", "wealth management",
-        "mining", "metals", "chemicals",
-        "advertising", "adtech", "martech",
-        "HR tech", "human resources",
-        "data centers", "cloud infrastructure", "hvac", "construction",
-        # Added list cues
-        "industries", "sectors", "verticals", "areas",
-        # Added thesis cues
-        "rationale", "criteria", "approach", "because", "reason"
-    }
 
+def embed_and_rank_paragraphs_thesis(paragraphs, query, industry, top_k=5,
+                                    min_words=3, min_chars=30, boost_weight=0.2):
+    """
+    Rank text chunks by semantic similarity to a thesis-focused query,
+    with an optional industry keyword boost. Returns up to top_k (chunk, score).
+    """
+    import re
+
+    # Simple noise filter (reuse logic)
     def is_noise(p):
         if len(p.split()) < min_words or len(p) < min_chars:
             return True
         letters = [c for c in p if c.isalpha()]
-        if letters and sum(1 for c in letters if c.isupper())/len(letters) > 0.6:
+        if letters and sum(c.isupper() for c in letters) / len(letters) > 0.6:
             return True
         return False
 
     clean = [p for p in paragraphs if not is_noise(p)] or paragraphs
 
-    # 1) Embeddings & cosine similarity
+    # Compute embeddings and cosine similarities
     qv   = model.encode(query, convert_to_numpy=True)
     embs = model.encode(clean, batch_size=64, convert_to_numpy=True)
     sims = np.dot(embs, qv) / (np.linalg.norm(embs, axis=1) * np.linalg.norm(qv))
 
-    # 2) Keyword boost
-    kw_flags = np.array([1 if any(kw in p.lower() for kw in KEYWORDS) else 0 for p in clean])
-
-    # 3) Thesis‐cue boost
-    thesis_flags = np.array([
-        1 if re.search(r'\b(thesis|rationale|criteria|approach|because)\b', p, re.I) else 0
+    # Industry keyword boost
+    ind_flags = np.array([
+        1 if industry.lower() in p.lower() else 0
         for p in clean
     ])
 
-    # 4) Comma‐list boost
-    list_flags = np.array([1 if p.count(',') >= 2 else 0 for p in clean])
+    # Combine scores
+    scores = sims + boost_weight * ind_flags
 
-    # 5) Combine scores
-    scores = (
-        sims
-        + boost_weight * kw_flags
-        + thesis_boost  * thesis_flags
-        + list_boost    * list_flags
-    )
-
-    # 6) Sort and select top_k
+    # Select top_k
     idxs = np.argsort(scores)[::-1][:top_k]
     return [(clean[i], float(scores[i])) for i in idxs]
 
+
+def embed_and_rank_paragraphs(paragraphs, query, top_k=10,
+                              min_words=3, min_chars=30,
+                              boost_weight=0.5):
+    """
+    Embed+rank text blocks purely to identify industry-related chunks:
+    - Uses cosine similarity to a focused industry query.
+    - Boosts any chunk containing explicit industry keywords or list patterns.
+    Returns list of (chunk, score).
+    """
+    import re
+
+    # Expanded industry keywords
+    INDUSTRY_KEYWORDS = {
+        "healthcare", "medtech", "medical devices", "pharmaceuticals", "biotech",
+        "technology", "software", "cloud computing", "SaaS", "AI", "machine learning",
+        "cybersecurity", "blockchain", "fintech", "insurtech",
+        "energy", "renewable energy", "oil & gas", "utilities",
+        "industrial", "manufacturing", "automotive", "transportation",
+        "logistics", "supply chain",
+        "consumer", "retail", "FMCG", "ecommerce",
+        "food & beverage", "hospitality", "travel",
+        "tourism", "education", "edtech",
+        "media", "digital media", "streaming", "gaming",
+        "telecommunications", "5G", "IoT",
+        "real estate", "infrastructure", "construction",
+        "financial services", "banking", "insurance",
+        "wealth management", "mining", "metals", "chemicals"
+    }
+
+    def is_noise(p):
+        # allow shorter chunks to capture bullet lists
+        if len(p.split()) < min_words or len(p) < min_chars:
+            return True
+        return False
+
+    clean = [p for p in paragraphs if not is_noise(p)] or paragraphs
+
+    # 1) Compute embeddings + cosine similarity
+    qv   = model.encode(query, convert_to_numpy=True)
+    embs = model.encode(clean, batch_size=64, convert_to_numpy=True)
+    sims = np.dot(embs, qv) / (np.linalg.norm(embs, axis=1) * np.linalg.norm(qv))
+
+    # 2) Industry keyword boost
+    kw_flags = np.array([
+        1 if any(kw in p.lower() for kw in INDUSTRY_KEYWORDS) else 0
+        for p in clean
+    ])
+
+    # 3) List-style boost for comma/semi-colon separated lists
+    list_flags = np.array([
+        1 if len([seg for seg in re.split(r'[;,]', p) if seg.strip()]) >= 2 else 0
+        for p in clean
+    ])
+
+    # 4) Final score = semantic + boosts
+    scores = sims + boost_weight * (kw_flags + list_flags)
+
+    # 5) Return top_k chunks with scores
+    idxs = np.argsort(scores)[::-1][:top_k]
+    return [(clean[i], float(scores[i])) for i in idxs]
 
 
 def read_txt(folder_path, filename):
