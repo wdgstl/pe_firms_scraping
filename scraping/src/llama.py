@@ -57,32 +57,41 @@ def format_grade_prompt(answer):
         """
 
 def format_thesis_prompt(industry_area: str, text: str) -> str:
-    print("Kicking off thesis job…")
+    """
+    Build a prompt that extracts a thesis only when it is unmistakably present.
+    If nothing matches, the model must return an empty string ("").
+    """
     return f"""
-        You are a private-equity research assistant.
+    You are a **private-equity research assistant**.
 
-        TASK  
-        Extract an **explicit investment thesis** for the industry below.  
-        • It is LIKELY that there will not be a thesis. If there is not, that is ok and return nothing, do not make anything up or generalize another thesis into this industry.
-        • Use **only** wording that appears verbatim in the text.  
-        • **Do NOT** add any labels, commentary, or paraphrasing.  
-        • If no thesis is present, return an empty string (`""`).
+    GOAL  
+    Find an **explicit investment thesis** for the industry below.
 
+    STRICT RULES  
+    1. **Assume there is NO thesis** unless you find a sentence or phrase that
+    *clearly* states *why* the firm invests in this industry.
+    2. **Verbatim only** – copy the exact words from the text.
+    3. **No guessing, summarising, or re-phrasing.**
+    4. If you do **not** find a thesis, output *exactly* the empty string: `""`
+    (two quotes, no brackets, no spaces, no text).
 
-        OUTPUT  
-        Return exactly one line in this form (no extra spaces):  
-        `[<thesis sentence or phrase>]`
+    OUTPUT FORMAT  
+    • If a thesis exists → one line **only**: `[<verbatim thesis>]`  
+    • If no thesis → one line **only**: `""`
 
-        Examples  
-        ✔ **Correct:** [We seek to back founder-owned industrial technology businesses.]  
-        ✘ **Wrong:** [Investment Thesis: We seek to back founder-owned industrial technology businesses.]
+    POSITIVE / NEGATIVE EXAMPLES  
+    **Correct (found)**: `[We invest in asset-light healthcare businesses with recurring revenue.]`  
+    **Fail (added label)**: `[Investment Thesis: We invest in asset-light healthcare businesses with recurring revenue.]`  
+    **Fail (invented / paraphrased)**: `[We back great management teams across all industries.]`  
+    **Correct (no thesis)**: `""`
 
-        INDUSTRY AREA  
-        {industry_area}
+    INDUSTRY  
+    {industry_area}
 
-        TEXT  
-        {text}
-        """
+    TEXT  
+    {text}
+""".strip()
+
 
 
 def call_model(text):
@@ -126,17 +135,28 @@ def extract_industries(model_output: str) -> list[str]:
 
 import re
 
+WRAPPERS = "[]<>\"'`" 
+
+
 def extract_thesis(raw: str) -> str:
-  
     if not raw or not raw.strip():
         return ""
 
     txt = raw.strip()
 
-    if txt.startswith("[") and txt.endswith("]"):
-        txt = txt[1:-1].strip()
-
     txt = re.sub(r"^Investment\s+Thesis:\s*", "", txt, flags=re.I).strip()
 
+    # 2️⃣ Peel wrapper chars off both ends repeatedly
+    while txt and txt[0] in WRAPPERS:
+        txt = txt[1:].strip()
+    while txt and txt[-1] in WRAPPERS:
+        txt = txt[:-1].strip()
+
+    txt = re.sub(f"[{re.escape(WRAPPERS)}]", "", txt).strip()
+
+    txt = re.sub(r"[\s]*[:;,–-]+\s*$", "", txt).strip()
+
     return txt
+
+
 

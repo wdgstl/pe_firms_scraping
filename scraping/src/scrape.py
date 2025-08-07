@@ -159,63 +159,48 @@ def embed_and_rank_paragraphs_thesis(paragraphs, query, industry, top_k=5,
 
 
 def embed_and_rank_paragraphs(paragraphs, query, top_k=10,
-                              min_words=3, min_chars=30,
-                              boost_weight=0.5):
+                              min_words=5, min_chars=60, boost_weight=0.2):
     """
-    Embed+rank text blocks purely to identify industry-related chunks:
-    - Uses cosine similarity to a focused industry query.
-    - Boosts any chunk containing explicit industry keywords or list patterns.
-    Returns list of (chunk, score).
+    Embed+rank text blocks by similarity, boosting those containing
+    an expanded set of PE-industry keywords. Returns list of (chunk, score).
     """
-    import re
-
-    # Expanded industry keywords
-    INDUSTRY_KEYWORDS = {
+    KEYWORDS = {
+        "focus", "invest", "investment", "strategy", "portfolio", "sector", "thesis",
+        "acquire", "acquires", "grows", "grow", "business", "company",
+        "holding", "model", "mission", "goal",
         "healthcare", "medtech", "medical devices", "pharmaceuticals", "biotech",
         "technology", "software", "cloud computing", "SaaS", "AI", "machine learning",
         "cybersecurity", "blockchain", "fintech", "insurtech",
         "energy", "renewable energy", "oil & gas", "utilities",
-        "industrial", "manufacturing", "automotive", "transportation",
-        "logistics", "supply chain",
-        "consumer", "retail", "FMCG", "ecommerce",
-        "food & beverage", "hospitality", "travel",
-        "tourism", "education", "edtech",
+        "industrial", "manufacturing", "automotive", "automotive components",
+        "transportation", "logistics", "supply chain",
+        "consumer", "consumer goods", "FMCG", "ecommerce", "retail",
+        "food & beverage", "hospitality", "travel", "tourism",
+        "education", "edtech",
         "media", "digital media", "streaming", "gaming",
-        "telecommunications", "5G", "IoT",
+        "telecommunications", "5G", "IoT", "internet of things",
         "real estate", "infrastructure", "construction",
-        "financial services", "banking", "insurance",
-        "wealth management", "mining", "metals", "chemicals"
+        "financial services", "banking", "insurance", "wealth management",
+        "mining", "metals", "chemicals",
+        "advertising", "adtech", "martech",
+        "HR tech", "human resources",
+        "data centers", "cloud infrastructure", "hvac", "construction"
     }
 
     def is_noise(p):
-        # allow shorter chunks to capture bullet lists
         if len(p.split()) < min_words or len(p) < min_chars:
+            return True
+        letters = [c for c in p if c.isalpha()]
+        if letters and sum(1 for c in letters if c.isupper())/len(letters) > 0.6:
             return True
         return False
 
     clean = [p for p in paragraphs if not is_noise(p)] or paragraphs
-
-    # 1) Compute embeddings + cosine similarity
-    qv   = model.encode(query, convert_to_numpy=True)
-    embs = model.encode(clean, batch_size=64, convert_to_numpy=True)
+    qv = model.encode(query, convert_to_numpy=True)
+    embs = model.encode(clean, convert_to_numpy=True, batch_size=64)
     sims = np.dot(embs, qv) / (np.linalg.norm(embs, axis=1) * np.linalg.norm(qv))
-
-    # 2) Industry keyword boost
-    kw_flags = np.array([
-        1 if any(kw in p.lower() for kw in INDUSTRY_KEYWORDS) else 0
-        for p in clean
-    ])
-
-    # 3) List-style boost for comma/semi-colon separated lists
-    list_flags = np.array([
-        1 if len([seg for seg in re.split(r'[;,]', p) if seg.strip()]) >= 2 else 0
-        for p in clean
-    ])
-
-    # 4) Final score = semantic + boosts
-    scores = sims + boost_weight * (kw_flags + list_flags)
-
-    # 5) Return top_k chunks with scores
+    flags = np.array([1 if any(kw in p.lower() for kw in KEYWORDS) else 0 for p in clean])
+    scores = sims + boost_weight * flags
     idxs = np.argsort(scores)[::-1][:top_k]
     return [(clean[i], float(scores[i])) for i in idxs]
 

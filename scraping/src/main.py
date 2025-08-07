@@ -54,7 +54,7 @@ def process_firm(firm, model_queue):
         query = "Industries: Healthcare, Software, Fintech, Retail, Agriculture, Biotech"
 
         # 4) Score the deduped chunks
-        scored_chunks = embed_and_rank_paragraphs(clean_chunks, query, top_k=10)
+        scored_chunks = embed_and_rank_paragraphs(clean_chunks, query, top_k=30)
 
         # 4) Write out
         os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -84,17 +84,20 @@ def model_worker(model_queue):
         try:
             text = read_txt(OUTPUT_DIR, f"{firm_name}_relevant.txt")
             output = ""
-            for i in range(3):
-                print(f"[{firm_name}] Attempt {i+1}: Generating output...")
-                draft = call_model(format_prompt(text))
-                grade_resp = call_model(format_grade_prompt(draft))
-                grade = extract_first_int(grade_resp)
-                if grade == 1:
-                    output = draft
-                    print(f"[{firm_name}] Valid output found.")
-                    break
-                else:
-                    print(f"[{firm_name}] Output insufficient, retrying...")
+            # for i in range(3):
+            print(f"Generating output...")
+            draft = call_model(format_prompt(text))
+                # grade_resp = call_model(format_grade_prompt(draft))
+                # grade = extract_first_int(grade_resp)
+                # if grade == 1:
+                #     output = draft
+                #     print(f"[{firm_name}] Valid output found.")
+                #     break
+                # else:
+                #     print(f"[{firm_name}] Output insufficient, retrying...")
+            
+            output = draft
+            print(f"[{firm_name}] Valid output found.")
 
             # delete_txt(OUTPUT_DIR, f"{firm_name}_relevant.txt")
 
@@ -118,7 +121,7 @@ def model_worker(model_queue):
                 thesis_query = f"What is the investment thesis for {ind}?"
 
                 # 4) Score the deduped chunks
-                scored_chunks = embed_and_rank_paragraphs_thesis(clean_chunks, thesis_query, ind, top_k=10)
+                scored_chunks = embed_and_rank_paragraphs_thesis(clean_chunks, thesis_query, ind, top_k=30)
 
                 # 4) Write out
                 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -129,11 +132,16 @@ def model_worker(model_queue):
                 print(f"[{firm_name}] Relevant snippets written to {snippet_path}")
 
                 text = read_txt(OUTPUT_DIR, f"{firm_name}_{ind}_relevant.txt")
+
+                delete_txt(OUTPUT_DIR, f"{firm_name}_{ind}_relevant.txt")
+
                 thesis_raw = call_model(format_thesis_prompt(ind, text))
 
                 thesis = extract_thesis(thesis_raw)
 
                 industries_thesis_map[ind] = thesis
+
+            delete_txt('', txt)
 
 
             db = SQLConnection(host, port, database, user, password)
