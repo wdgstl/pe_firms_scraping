@@ -7,7 +7,7 @@ from llama import *
 from scrape import *
 from sql import *
 
-CSV_PATH = 'pefirms.csv'
+CSV_PATH = 'validation.csv'
 OUTPUT_DIR = 'output'
 
 # Load environment and database config
@@ -84,20 +84,12 @@ def model_worker(model_queue):
         try:
             text = read_txt(OUTPUT_DIR, f"{firm_name}_relevant.txt")
             output = ""
-            # for i in range(3):
             print(f"Generating output...")
             draft = call_model(format_prompt(text))
-                # grade_resp = call_model(format_grade_prompt(draft))
-                # grade = extract_first_int(grade_resp)
-                # if grade == 1:
-                #     output = draft
-                #     print(f"[{firm_name}] Valid output found.")
-                #     break
-                # else:
-                #     print(f"[{firm_name}] Output insufficient, retrying...")
             
             output = draft
             print(f"[{firm_name}] Valid output found.")
+            print(output)
 
             delete_txt(OUTPUT_DIR, f"{firm_name}_relevant.txt")
 
@@ -105,7 +97,7 @@ def model_worker(model_queue):
 
             industries_thesis_map = {}
 
-            for ind in industries:
+            for idx, ind in enumerate(industries):
                 with open(txt, 'r', encoding='utf-8') as f:
                     file_lines = f.read().splitlines()
 
@@ -125,15 +117,15 @@ def model_worker(model_queue):
 
                 # 4) Write out
                 os.makedirs(OUTPUT_DIR, exist_ok=True)
-                snippet_path = os.path.join(OUTPUT_DIR, f"{firm_name}_{ind}_relevant.txt")
+                snippet_path = os.path.join(OUTPUT_DIR, f"{firm_name}_{idx}_relevant.txt")
                 with open(snippet_path, 'w', encoding='utf-8') as rf:
                     for chunk, score in scored_chunks:
                         rf.write(f"[{score}]{chunk}\n\n")
                 print(f"[{firm_name}] Relevant snippets written to {snippet_path}")
 
-                text = read_txt(OUTPUT_DIR, f"{firm_name}_{ind}_relevant.txt")
+                text = read_txt(OUTPUT_DIR, f"{firm_name}_{idx}_relevant.txt")
 
-                delete_txt(OUTPUT_DIR, f"{firm_name}_{ind}_relevant.txt")
+                delete_txt(OUTPUT_DIR, f"{firm_name}_{idx}_relevant.txt")
 
                 thesis_raw = call_model(format_thesis_prompt(ind, text))
 
@@ -145,14 +137,27 @@ def model_worker(model_queue):
 
 
             db = SQLConnection(host, port, database, user, password)
-            for ind in industries_thesis_map.keys():
-                thesis = industries_thesis_map[ind]
+
+
+            if len(industries_thesis_map) == 0:
                 db.save_firm_to_db(
-                    firm_name, firm['website'], ind, thesis,
+                    firm_name, firm['website'], None, None,
                     firm.get('country', ''), str(firm.get('founded', '')),
                     firm.get('industry', ''), firm.get('linkedin_url', ''),
                     firm.get('locality', ''), firm.get('region', ''), firm.get('size', '')
                 )
+            else:
+                for ind in industries_thesis_map.keys():
+                    thesis = industries_thesis_map[ind]
+                    db.save_firm_to_db(
+                        firm_name, firm['website'], ind, thesis,
+                        firm.get('country', ''), str(firm.get('founded', '')),
+                        firm.get('industry', ''), firm.get('linkedin_url', ''),
+                        firm.get('locality', ''), firm.get('region', ''), firm.get('size', '')
+                    )
+
+               
+
             db.close()
             print(f"[{firm_name}] Saved to database.")
 
