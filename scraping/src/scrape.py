@@ -9,15 +9,14 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from sentence_transformers import SentenceTransformer
 import numpy as np
-from llama import *
 
-# Keywords to skip crawling
+# Keywords to skip crawling (unchanged)
 EXCLUDE_KEYWORDS = {
     "careers", "career", "jobs", "team", "people",
     "privacy", "terms", "legal",
     "contact", "support", "help", "faq",
     "blog", "news", "press", "media",
-    "events", "webinar", "culture",
+    "events", "webinar", "culture", "advisor", "advisors",
     "login", "signup", "register", "subscribe",
     "cookie", "rss", "sitemap",
     "leadership", ".pdf", ".jpg", ".jpeg",
@@ -28,17 +27,20 @@ EXCLUDE_KEYWORDS = {
 OUTPUT_DIR = "scraped_pages"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Initialize local embedding model (free)
+# Initialize embedding model
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
 def crawl_site(start_url, max_pages=1000):
-    visited = set()
-    to_visit = [start_url]
+    """
+    Crawl internal pages up to max_pages, extract all headings and paragraphs
+    in the order they appear (writing header text only),
+    and dump them to a single .txt file with page breaks.
+    """
+    visited, to_visit = set(), [start_url]
     base_domain = urlparse(start_url).netloc.replace("www.", "")
     firm_name = base_domain.replace('.', '_')
     output_file = os.path.join(OUTPUT_DIR, f"{firm_name}.txt")
 
-    # Headless browser setup (disable images, CSS, fonts for speed)
     opts = Options()
     opts.add_argument("--headless")
     opts.add_argument("--disable-gpu")
@@ -55,108 +57,133 @@ def crawl_site(start_url, max_pages=1000):
             continue
         visited.add(url)
         print("Visiting:", url)
+        driver.get(url.split('#')[0])
 
-        root = url.split("#")[0]
-        driver.get(root)
         try:
             WebDriverWait(driver, 3).until(
-                EC.presence_of_element_located((By.TAG_NAME, "a"))
+                EC.presence_of_element_located((By.TAG_NAME, "body"))
             )
         except:
             pass
 
         soup = BeautifulSoup(driver.page_source, "html.parser")
-        parsed = urlparse(url)
-
-        # Extract paragraphs from full page or in-page fragment
-        if parsed.fragment:
-            section = soup.find(id=parsed.fragment)
-            paras = section.find_all("p") if section else []
-        else:
-            paras = soup.find_all("p")
-
-        # Append paragraphs to output file
         with open(output_file, "a", encoding="utf-8") as f:
-            for p in paras:
-                text = p.get_text(separator=" ", strip=True)
-                if text:
-                    f.write(text + "\n\n")
+            for el in soup.find_all(["h1","h2","h3","h4","h5","h6","p"]):
+                text = el.get_text(separator=" ", strip=True)
+                if not text:
+                    continue
+                if el.name.startswith("h"):
+                    f.write(f"\n{text}\n")
+                else:
+                    f.write(text + "\n")
+            f.write("\n---PAGE BREAK---\n\n")
 
-        # Enqueue new links found in the page
         for tag in soup.find_all("a", href=True):
-            href = urljoin(root, tag["href"])
+            href = urljoin(url, tag["href"])
             p2 = urlparse(href)
             root_link = p2._replace(query="", fragment="").geturl()
-            frag = p2.fragment
-
-            # Same-site check (allow www and non-www)
             if p2.netloc.replace("www.", "") != base_domain:
                 continue
-            # Skip noisy or irrelevant paths
             if any(kw in root_link.lower() for kw in EXCLUDE_KEYWORDS):
                 continue
-
-            next_url = root_link + (f"#{frag}" if frag else "")
-            if next_url not in visited and next_url not in to_visit:
-                to_visit.append(next_url)
+            candidate = root_link + (f"#{p2.fragment}" if p2.fragment else "")
+            if candidate not in visited and candidate not in to_visit:
+                to_visit.append(candidate)
 
     driver.quit()
     return output_file
 
 
-def embed_and_rank_paragraphs(paragraphs, query, top_k=10, min_words=5, min_chars=60, boost_weight=0.2):
+def chunk_text(lines):
     """
-    Embed and rank paragraphs by semantic similarity to the query,
-    then boost those containing key investment keywords.
-    Filters out very short, heading-like, or excessively brief text blocks.
+    Split text into chunks by single blank-line separators, but ensure that headers
+    stay with their following paragraphs. Page-break markers also split.
+    Returns a list of chunk strings.
     """
-    # Expanded investment-related keywords to boost
+    chunks, current = [], []
+    for line in lines:
+        stripped = line.strip()
+        if stripped == "---PAGE BREAK---":
+            if current:
+                chunks.append("\n".join(current).strip())
+                current = []
+            continue
+        if stripped == "":
+            if current and len(current) > 1:
+                chunks.append("\n".join(current).strip())
+                current = []
+            continue
+        current.append(line)
+    if current:
+        chunks.append("\n".join(current).strip())
+    return chunks
+
+
+def embed_and_rank_paragraphs(paragraphs, query, top_k=10,
+                              min_words=5, min_chars=60, boost_weight=0.2):
+    """
+    Embed+rank text blocks by similarity, boosting those containing
+    an expanded set of PE-industry keywords. Returns list of (chunk, score).
+    """
     KEYWORDS = {
-        "focus", "invest", "strategy", "portfolio", "sector", "thesis",
-        "acquire", "acquires", "grows", "grow", "business", "company", "holding", "model", "mission", "goal"
+        "focus", "invest", "investment", "strategy", "portfolio", "sector", "thesis",
+        "acquire", "acquires", "grows", "grow", "business", "company",
+        "holding", "model", "mission", "goal",
+        "healthcare", "medtech", "medical devices", "pharmaceuticals", "biotech",
+        "technology", "software", "cloud computing", "SaaS", "AI", "machine learning",
+        "cybersecurity", "blockchain", "fintech", "insurtech",
+        "energy", "renewable energy", "oil & gas", "utilities",
+        "industrial", "manufacturing", "automotive", "automotive components",
+        "transportation", "logistics", "supply chain",
+        "consumer", "consumer goods", "FMCG", "ecommerce", "retail",
+        "food & beverage", "hospitality", "travel", "tourism",
+        "education", "edtech",
+        "media", "digital media", "streaming", "gaming",
+        "telecommunications", "5G", "IoT", "internet of things",
+        "real estate", "infrastructure", "construction",
+        "financial services", "banking", "insurance", "wealth management",
+        "mining", "metals", "chemicals",
+        "advertising", "adtech", "martech",
+        "HR tech", "human resources",
+        "data centers", "cloud infrastructure", "hvac", "construction"
     }
 
     def is_noise(p):
-        if len(p.split()) < min_words:
-            return True
-        if len(p) < min_chars:
+        if len(p.split()) < min_words or len(p) < min_chars:
             return True
         letters = [c for c in p if c.isalpha()]
-        if letters:
-            upper_ratio = sum(1 for c in letters if c.isupper()) / len(letters)
-            if upper_ratio > 0.6:
-                return True
+        if letters and sum(1 for c in letters if c.isupper())/len(letters) > 0.6:
+            return True
         return False
 
-    clean = [p for p in paragraphs if not is_noise(p)]
-    if not clean:
-        clean = paragraphs  # fallback
+    clean = [p for p in paragraphs if not is_noise(p)] or paragraphs
+    qv = model.encode(query, convert_to_numpy=True)
+    embs = model.encode(clean, convert_to_numpy=True, batch_size=64)
+    sims = np.dot(embs, qv) / (np.linalg.norm(embs, axis=1) * np.linalg.norm(qv))
+    flags = np.array([1 if any(kw in p.lower() for kw in KEYWORDS) else 0 for p in clean])
+    scores = sims + boost_weight * flags
+    idxs = np.argsort(scores)[::-1][:top_k]
+    return [(clean[i], float(scores[i])) for i in idxs]
 
-    # compute embeddings
-    query_vec = model.encode(query, convert_to_numpy=True)
-    para_embs = model.encode(clean, convert_to_numpy=True, batch_size=100)
 
-    # cosine similarities
-    sims = np.dot(para_embs, query_vec) / (
-        np.linalg.norm(para_embs, axis=1) * np.linalg.norm(query_vec)
-    )
+def chunk_and_score(lines, query, top_k=10, **kwargs):
+    """
+    Split lines into chunks and score each chunk. Prints and returns
+    a list of (chunk, score) tuples.
+    """
+    chunks = chunk_text(lines)
+    scored = embed_and_rank_paragraphs(chunks, query, top_k=top_k, **kwargs)
+    return scored
 
-    # keyword flags and combined scores
-    keyword_flags = np.array([1 if any(kw in p.lower() for kw in KEYWORDS) else 0 for p in clean])
-    combined = sims + boost_weight * keyword_flags
-
-    # sort by combined score and return only text and score
-    idxs = np.argsort(combined)[::-1][:top_k]
-    return [(clean[i], float(combined[i])) for i in idxs]
 
 def read_txt(folder_path, filename):
-    with open(os.path.join(folder_path, filename), "r", encoding="utf-8") as f:
-        content = f.read().strip()
-    return content
+    full_path = os.path.join(folder_path, filename)
+    with open(full_path, "r", encoding="utf-8") as f:
+        return f.read().splitlines()
+
 
 def delete_txt(folder_path, filename):
     file_path = os.path.join(folder_path, filename)
-    
     try:
         if os.path.exists(file_path):
             os.remove(file_path)
@@ -165,55 +192,3 @@ def delete_txt(folder_path, filename):
             print(f"File not found: {file_path}")
     except Exception as e:
         print(f"Error deleting {file_path}: {e}")
-
-    
-def main():
-    firm_name = "blackrock"
-    
-    txt_file = crawl_site("https://joingardencity.com", max_pages=30)
-
-    with open(txt_file, 'r', encoding='utf-8') as f:
-        paras = [p.strip() for p in f.read().split('\n\n') if p.strip()]
-    seen, clean_paras = set(), []
-    for p in paras:
-        if p not in seen:
-            seen.add(p)
-            clean_paras.append(p)
-
-    query = (
-        "Our private equity firm focuses on specific industries, employs an investment model such as buy-and-build or growth equity, and follows clear investment thesis statements for value creation."
-        )
-
-    top_k = embed_and_rank_paragraphs(clean_paras, query, top_k=60)
-
-    try: os.remove(txt_file)
-    except OSError: pass
-
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    snippet_path = os.path.join(OUTPUT_DIR, f"{firm_name}_relevant.txt")
-    with open(snippet_path, 'w', encoding='utf-8') as rf:
-        for txt, _ in top_k:
-            rf.write(txt + "\n\n")
-
-    text = read_txt(OUTPUT_DIR, f"{firm_name}_relevant.txt")
-    for i in range(3):
-        print(f"Attempt {i + 1}: Generating thesis...")
-        thesis = call_model(format_prompt(text))
-        response = call_model(format_grade_prompt(thesis))
-        grade = extract_first_int(response)
-        print(thesis)
-        print(grade)
-
-        if 1 == 1:
-            print("Valid thesis identified. Exiting loop."  )
-            break
-        else:
-            print("Thesis did not contain sufficient investment thesis information. Retrying...\n")
-    else:
-        print("Failed to generate a valid thesis after 3 attempts.")
-
-    # delete_txt(OUTPUT_DIR, f"{firm_name}_relevant.txt")
-
-    
-if __name__ == '__main__':
-    main()

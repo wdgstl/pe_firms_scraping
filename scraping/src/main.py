@@ -32,27 +32,39 @@ def process_firm(firm, model_queue):
     print(f"[{firm_id}] Visiting {firm_website}")
     try:
         txt_file = crawl_site(firm_website, max_pages=30)
+
+    
+        # 1) Read *all* lines (so blank lines are preserved)
+        # 1) Read all lines, preserving blank ones
+        # 1) Read raw lines (including blank ones and page‐break markers)
         with open(txt_file, 'r', encoding='utf-8') as f:
-            paras = [p.strip() for p in f.read().split('\n\n') if p.strip()]
-        seen, clean_paras = set(), []
-        for p in paras:
-            if p not in seen:
-                seen.add(p)
-                clean_paras.append(p)
+            file_lines = f.read().splitlines()
 
-        query = (
-        "Our private equity firm focuses on specific industries, employs an investment model such as buy-and-build or growth equity, and follows clear investment thesis statements for value creation."
-        )
-        top_k = embed_and_rank_paragraphs(clean_paras, query, top_k=60)
+        # 2) Chunk on blank lines / headers / page breaks
+        chunks = chunk_text(file_lines)
 
+        # 3) Deduplicate the resulting chunks (preserving order)
+        seen = set()
+        clean_chunks = []
+        for chunk in chunks:
+            if chunk not in seen:
+                seen.add(chunk)
+                clean_chunks.append(chunk)
+
+        query = ("What industry areas does the firm invest in?")
+
+        # 4) Score the deduped chunks
+        scored_chunks = embed_and_rank_paragraphs(clean_chunks, query, top_k=60)
+
+        # 4) Write out
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         snippet_path = os.path.join(OUTPUT_DIR, f"{firm_name}_relevant.txt")
         with open(snippet_path, 'w', encoding='utf-8') as rf:
-            for txt, _ in top_k:
-                rf.write(txt + "\n\n")
+            for chunk, score in scored_chunks:
+                rf.write(f"[{score}]{chunk}\n\n")
 
         model_queue.put((firm, snippet_path))
-        print(f"[{firm_name}] Enqueued for model processing.")
+        print(f"[{firm_name}] Relevant snippets written to {snippet_path}")
 
     except Exception as e:
         print(f"[{firm_id}] Error in scraping: {e}")
@@ -68,7 +80,6 @@ def model_worker(model_queue):
             break
 
         firm, path = item
-        firm_id = str(firm['id'])
         firm_name = firm['name']
         try:
             text = read_txt(OUTPUT_DIR, f"{firm_name}_relevant.txt")
@@ -85,7 +96,7 @@ def model_worker(model_queue):
                 else:
                     print(f"[{firm_name}] Output insufficient, retrying...")
 
-            delete_txt(OUTPUT_DIR, f"{firm_name}_relevant.txt")
+            # delete_txt(OUTPUT_DIR, f"{firm_name}_relevant.txt")
 
             industries = extract_industries(output)
 
