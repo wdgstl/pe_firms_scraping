@@ -72,28 +72,31 @@ def model_worker(model_queue):
         firm_name = firm['name']
         try:
             text = read_txt(OUTPUT_DIR, f"{firm_name}_relevant.txt")
-            thesis = ""
+            output = ""
             for i in range(3):
-                print(f"[{firm_name}] Attempt {i+1}: Generating thesis...")
+                print(f"[{firm_name}] Attempt {i+1}: Generating output...")
                 draft = call_model(format_prompt(text))
                 grade_resp = call_model(format_grade_prompt(draft))
                 grade = extract_first_int(grade_resp)
                 if grade == 1:
-                    thesis = draft
-                    print(f"[{firm_name}] Valid thesis found.")
+                    output = draft
+                    print(f"[{firm_name}] Valid output found.")
                     break
                 else:
-                    print(f"[{firm_name}] Thesis insufficient, retrying...")
+                    print(f"[{firm_name}] Output insufficient, retrying...")
 
             delete_txt(OUTPUT_DIR, f"{firm_name}_relevant.txt")
 
+            industries = extract_industries(output)
+
             db = SQLConnection(host, port, database, user, password)
-            db.save_firm_to_db(
-                firm_id, firm_name, firm['website'], thesis,
-                firm.get('country', ''), str(firm.get('founded', '')),
-                firm.get('industry', ''), firm.get('linkedin_url', ''),
-                firm.get('locality', ''), firm.get('region', ''), firm.get('size', '')
-            )
+            for ind in industries:
+                db.save_firm_to_db(
+                    firm_name, firm['website'], ind,
+                    firm.get('country', ''), str(firm.get('founded', '')),
+                    firm.get('industry', ''), firm.get('linkedin_url', ''),
+                    firm.get('locality', ''), firm.get('region', ''), firm.get('size', '')
+                )
             db.close()
             print(f"[{firm_name}] Saved to database.")
 

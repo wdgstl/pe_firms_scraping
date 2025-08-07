@@ -14,10 +14,10 @@ class SQLConnection:
     def create_table(self):
         self.cursor.execute("""
         CREATE TABLE IF NOT EXISTS firms (
-            id TEXT PRIMARY KEY,
+            id SERIAL PRIMARY KEY,
             name TEXT NOT NULL,
             website TEXT,
-            thesis TEXT,
+            industry_area TEXT,
             country TEXT,
             founded TEXT,
             industry TEXT,
@@ -29,15 +29,15 @@ class SQLConnection:
         """)
         self.conn.commit()
 
-    def save_firm_to_db(self, id: str, name: str, website: str, thesis: str,
+    def save_firm_to_db(self, name: str, website: str, industry_area: str,
                         country: str, founded: str, industry: str,
                         linkedin_url: str, locality: str, region: str, size: str):
         try:
             self.cursor.execute("""
-                INSERT INTO firms (id, name, website, thesis, country, founded, industry, linkedin_url, locality, region, size)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO firms (name, website, industry_area, country, founded, industry, linkedin_url, locality, region, size)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (id) DO NOTHING;
-            """, (id, name, website, thesis, country, founded, industry, linkedin_url, locality, region, size))
+            """, (name, website, industry_area, country, founded, industry, linkedin_url, locality, region, size))
             self.conn.commit()
             print(f"Saved: {name}")
         except Exception as e:
