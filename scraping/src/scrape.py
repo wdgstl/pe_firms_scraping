@@ -29,7 +29,9 @@ OUTPUT_DIR = "scraped_pages"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Initialize embedding model
-model = SentenceTransformer('all-MiniLM-L6-v2')
+# model = SentenceTransformer('Qwen/Qwen3-Embedding-0.6B')
+
+model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
 
 def crawl_site(start_url, max_pages=1000):
     """

@@ -7,7 +7,7 @@ from llama import *
 from scrape import *
 from sql import *
 
-CSV_PATH = 'validation.csv'
+CSV_PATH = 'pefirms.csv'
 OUTPUT_DIR = 'output'
 
 # Load environment and database config
@@ -61,7 +61,7 @@ def process_firm(firm, model_queue):
         snippet_path = os.path.join(OUTPUT_DIR, f"{firm_name}_relevant.txt")
         with open(snippet_path, 'w', encoding='utf-8') as rf:
             for chunk, score in scored_chunks:
-                rf.write(f"[{score}]{chunk}\n\n")
+                rf.write(f"{chunk}\n\n")
 
         model_queue.put((firm, snippet_path, txt_file))
         print(f"[{firm_name}] Relevant snippets written to {snippet_path}")
@@ -89,7 +89,6 @@ def model_worker(model_queue):
             
             output = draft
             print(f"[{firm_name}] Valid output found.")
-            print(output)
 
             delete_txt(OUTPUT_DIR, f"{firm_name}_relevant.txt")
 
@@ -120,7 +119,7 @@ def model_worker(model_queue):
                 snippet_path = os.path.join(OUTPUT_DIR, f"{firm_name}_{idx}_relevant.txt")
                 with open(snippet_path, 'w', encoding='utf-8') as rf:
                     for chunk, score in scored_chunks:
-                        rf.write(f"[{score}]{chunk}\n\n")
+                        rf.write(f"{chunk}\n\n")
                 print(f"[{firm_name}] Relevant snippets written to {snippet_path}")
 
                 text = read_txt(OUTPUT_DIR, f"{firm_name}_{idx}_relevant.txt")
