@@ -2,6 +2,7 @@ import os
 import time
 from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
+import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
@@ -10,6 +11,7 @@ from selenium.webdriver.common.by import By
 from sentence_transformers import SentenceTransformer
 import numpy as np
 import re
+import csv
 
 # Keywords to skip crawling (unchanged)
 EXCLUDE_KEYWORDS = {
@@ -27,6 +29,8 @@ EXCLUDE_KEYWORDS = {
 # Ensure output directory exists
 OUTPUT_DIR = "scraped_pages"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+UNREACHABLE_CSV = os.path.join('', "unreachable.csv")
 
 # Initialize embedding model
 # model = SentenceTransformer('Qwen/Qwen3-Embedding-0.6B')
@@ -59,6 +63,79 @@ def crawl_site(start_url, max_pages=1000):
         if url in visited:
             continue
         visited.add(url)
+
+        # ---- Inline reachability preflight (only change) ----
+        test_url = url
+
+        unreachable_set = set()
+        if os.path.exists(UNREACHABLE_CSV):
+            with open(UNREACHABLE_CSV, "r", encoding="utf-8", newline="") as f:
+                reader = csv.reader(f)
+                for row in reader:
+                    if not row:
+                        continue
+                    val = row[0].strip()
+                    if val.lower() != "url" and val:
+                        unreachable_set.add(val)
+
+
+        if test_url in unreachable_set:
+            print(f"[skip] Already in unreachable.csv: {test_url}")
+            continue
+
+
+        if not urlparse(test_url).scheme:
+            test_url = "https://" + test_url
+
+        reachable = False
+        try:
+            # fast HEAD; any status means reachable
+            r = requests.head(test_url, timeout=(2, 4), allow_redirects=True)
+            if r.status_code in (405, 400) or ("HEAD" not in r.headers.get("Allow", "") and r.status_code >= 400):
+                # some sites block HEAD → do a tiny GET
+                g = requests.get(test_url, headers={"Range": "bytes=0-0"}, timeout=(2, 4), allow_redirects=True, stream=True)
+                g.close()
+            reachable = True
+        except requests.exceptions.SSLError:
+            # try plain http on SSL/handshake problems
+            if test_url.startswith("https://"):
+                http_url = "http://" + test_url[len("https://"):]
+            else:
+                http_url = "http://" + test_url
+            try:
+                r2 = requests.head(http_url, timeout=(2, 4), allow_redirects=True)
+                if r2.status_code in (405, 400) or ("HEAD" not in r2.headers.get("Allow", "") and r2.status_code >= 400):
+                    g2 = requests.get(http_url, headers={"Range": "bytes=0-0"}, timeout=(2, 4), allow_redirects=True, stream=True)
+                    g2.close()
+                reachable = True
+            except Exception as e2:
+                print(f"[skip] Unreachable (SSL->HTTP failed): {url} ({type(e2).__name__})")
+        except (requests.exceptions.ConnectTimeout,
+                requests.exceptions.ReadTimeout,
+                requests.exceptions.ConnectionError,
+                requests.exceptions.TooManyRedirects) as e:
+            # give GET one chance after connection-type issues
+            try:
+                g3 = requests.get(test_url, headers={"Range": "bytes=0-0"}, timeout=(2, 4), allow_redirects=True, stream=True)
+                g3.close()
+                reachable = True
+            except Exception as e3:
+                print(f"[skip] Unreachable: {url} ({type(e).__name__} -> {type(e3).__name__})")
+        except Exception as e:
+            print(f"[skip] Unreachable (unexpected): {url} ({type(e).__name__})")
+
+        if not reachable:
+            new_file = not os.path.exists(UNREACHABLE_CSV)
+
+            with open(UNREACHABLE_CSV, "a", encoding="utf-8", newline="") as f:
+                    w = csv.writer(f)
+                    if new_file:
+                        w.writerow(["url"])
+                    w.writerow([test_url])
+                
+            continue
+        # ---- end inline preflight ----
+
         print("Visiting:", url)
         driver.get(url.split('#')[0])
 

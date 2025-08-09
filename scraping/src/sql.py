@@ -40,6 +40,7 @@ class SQLConnection:
                 ON CONFLICT (id) DO NOTHING;
             """, (name, website, industry_area, thesis, country, founded, industry, linkedin_url, locality, region, size))
             self.conn.commit()
+            
             print(f"Saved: {name}")
         except Exception as e:
             print("Error saving firm:", e)

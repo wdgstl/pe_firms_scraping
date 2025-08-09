@@ -166,10 +166,10 @@ def model_worker(model_queue):
 
 def main(parallel: bool = False):    
 
-    db = SQLConnection(host, port, database, user, password)
-    db.drop_table()
-    db.create_table()
-    db.close()
+    # db = SQLConnection(host, port, database, user, password)
+    # db.drop_table()
+    # db.create_table()
+    # db.close()
 
     firms = get_firms(CSV_PATH)
 
@@ -188,7 +188,17 @@ def main(parallel: bool = False):
                 executor.submit(process_firm, firm, model_queue)
         else:                                 # single-process scrape
             for firm in firms:
-                process_firm(firm, model_queue)
+                db = SQLConnection(host, port, database, user, password)
+                result = db.cursor.execute(
+                "SELECT 1 FROM firms WHERE name = %s LIMIT 1",
+                (firm['name'],))
+                row = db.cursor.fetchone()
+                db.close()
+                if row:
+                    print(f'Skipping {firm['name']}... already exists')
+                    continue
+                else:
+                    process_firm(firm, model_queue)
 
         # Signal the worker to shut down
         model_queue.put(None)
