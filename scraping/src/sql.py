@@ -30,6 +30,38 @@ class SQLConnection:
         """)
         self.conn.commit()
 
+    def create_people_table(self):
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS people (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                firm TEXT NOT NULL,
+                region TEXT,
+                position TEXT,
+                faith INTEGER NOT NULL,
+                evidence TEXT,
+                UNIQUE (name, firm)
+            );
+        """)
+        self.conn.commit()
+
+    def save_person_to_db(self, name: str, firm: str, region: str, position: str, faith: int, evidence: str):
+        try:
+            self.cursor.execute("""
+                INSERT INTO people (name, firm, region, position, faith, evidence)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (name, firm) DO UPDATE
+                SET position = EXCLUDED.position,
+                    faith = EXCLUDED.faith,
+                    evidence = EXCLUDED.evidence;
+            """, (name, firm, region, position, faith, evidence))
+            self.conn.commit()
+            print(f"Saved: {name}")
+        except Exception as e:
+            self.conn.rollback()
+            print("Error saving person:", e)
+
+
     def save_firm_to_db(self, name: str, website: str, industry_area: str, thesis: str,
                         country: str, founded: str, industry: str,
                         linkedin_url: str, locality: str, region: str, size: str):
